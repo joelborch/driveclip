@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DriveClip — screen recordings straight into your Google Drive</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta
+      name="description"
+      content="An open-source Chrome extension that records your tab or screen and streams it into your own Google Drive while you record. No accounts, no servers."
+    />
+    <meta name="theme-color" content="#FFFFFF" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,600;12..96,75..100,700&display=swap"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <a class="wordmark" href="/">
+          <img class="lens" src="/mark-64.png" width="20" height="20" alt="" style="border-radius:5px">
+          DriveClip
+        </a>
+        <a class="muted-link" href="https://github.com/joelborch/driveclip" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </header>
+
+      <main class="main">
+        <div class="landing">
+          <div class="hero">
+            <span class="eyebrow">Open source Chrome extension</span>
+            <h1>Record a tab. It lands in your Drive.</h1>
+            <p class="lede">
+              DriveClip records your tab or your whole screen and streams it into your own Google
+              Drive as it goes, so the share link is ready the second you stop. No accounts to make,
+              no servers of ours in between.
+            </p>
+
+            <div class="hero-actions">
+              <a class="btn" href="https://github.com/joelborch/driveclip" target="_blank" rel="noopener noreferrer">Get it on GitHub</a>
+              <a class="btn btn-quiet" href="https://github.com/joelborch/driveclip#readme" target="_blank" rel="noopener noreferrer">Read the setup guide</a>
+            </div>
+
+            <p class="install-note">
+              Not on the Chrome Web Store yet. Clone the repo, open <code>chrome://extensions</code>,
+              turn on Developer mode and load the <code>extension/</code> folder unpacked.
+            </p>
+          </div>
+
+          <div class="path">
+            <div class="path-head">
+              <svg class="lens lens-lg" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+                <circle class="lens-halo" cx="22" cy="22" r="20.5" />
+                <circle class="lens-ring" cx="22" cy="22" r="16" />
+                <circle class="lens-disc" cx="22" cy="22" r="8" />
+              </svg>
+              <span class="eyebrow">How a recording travels<small>Source → your Drive → a link</small></span>
+            </div>
+
+            <div class="path-stop">
+              <span class="eyebrow">Source</span>
+              <h2>A tab, a window, or the screen</h2>
+              <p>Pick what to capture and whether the mic is on. Recording starts from the popup.</p>
+            </div>
+
+            <div class="path-stop">
+              <span class="eyebrow">Destination</span>
+              <h2>Your Google Drive, live</h2>
+              <p>
+                Chunks upload while you record, into one folder the extension creates. It only ever
+                touches files it made itself.
+              </p>
+            </div>
+
+            <div class="path-stop">
+              <span class="eyebrow">Output</span>
+              <h2>A link you can send</h2>
+              <p>Stopping hands you a viewer link. Whoever opens it watches the clip, nothing else.</p>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer class="footer">MIT licensed. Not affiliated with Google.</footer>
+    </div>
+  </body>
+</html>

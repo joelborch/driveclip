@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DriveClip — Microphone access</title>
+  <style>
+    :root {
+      --ink: #F7F7F8;
+      --surface: #FFFFFF;
+      --surface-2: #F4F5F6;
+      --line: #E4E5E9;
+      --text: #1B1D21;
+      --text-dim: #70747D;
+      --rec: #E5484D;
+      --standby: #B8860B;
+      --ok: #2F9E44;
+
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+      color-scheme: light;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: var(--ink);
+    }
+
+    body {
+      color: var(--text);
+      font: 16px/1.55 var(--sans);
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      justify-content: center;
+      padding: 72px 20px 40px;
+      background: var(--ink);
+    }
+
+    :focus-visible {
+      outline: 2px solid #5E9ED6;
+      outline-offset: 2px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 460px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(20, 21, 26, 0.07);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .mark {
+      display: flex;
+      color: var(--line);
+    }
+
+    .wordmark {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    .eyebrow {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.2;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex: none;
+      background: var(--text-dim);
+    }
+
+    .dot-standby { background: var(--standby); }
+    .dot-ok { background: var(--ok); }
+    .dot-rec { background: var(--rec); }
+
+    h1 {
+      margin: -8px 0 0;
+      font-size: 22px;
+      line-height: 1.25;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 15px;
+    }
+
+    strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .btn {
+      appearance: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      font: 15px/1.2 var(--sans);
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+
+    .btn:not(:disabled):hover {
+      background: var(--surface-2);
+      border-color: var(--text-dim);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .note {
+      padding: 16px;
+      border-radius: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .note p {
+      font-size: 14px;
+    }
+
+    .note-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .note.ok {
+      background: #EDF8F0;
+      border-color: #C9E8D1;
+    }
+
+    .note.bad {
+      background: #FDF0F0;
+      border-color: #F3D2D3;
+    }
+
+    .settings-url {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--ink);
+      color: var(--text);
+      font: 12px/1.3 var(--mono);
+      text-overflow: ellipsis;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="header">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="16" height="16" focusable="false">
+          <circle cx="8" cy="8" r="7" fill="none" stroke="#E5484D" stroke-width="1" opacity="0.35"></circle>
+          <circle cx="8" cy="8" r="3.25" fill="#E5484D"></circle>
+        </svg>
+      </span>
+      <span class="wordmark">DriveClip</span>
+    </div>
+
+    <p class="eyebrow">Permission</p>
+    <h1>Allow microphone access</h1>
+    <p>
+      DriveClip records in a background document that can't show permission prompts, so
+      the microphone has to be granted once here. Choose <strong>Allow</strong> in Chrome's
+      prompt. Nothing is recorded on this page — the microphone is released immediately.
+    </p>
+
+    <button class="btn" id="btn-request">Allow microphone</button>
+
+    <div class="note ok" id="note-granted" hidden>
+      <p class="note-title"><span class="dot dot-ok" aria-hidden="true"></span>Microphone enabled</p>
+      <p>Close this tab and start recording.</p>
+    </div>
+
+    <div class="note bad" id="note-denied" hidden>
+      <p class="note-title"><span class="dot dot-rec" aria-hidden="true"></span><span id="denied-title">Microphone blocked.</span></p>
+      <p id="denied-message"></p>
+      <p>
+        Open Chrome's site settings for this extension, set Microphone to
+        <strong>Allow</strong>, then reload this page.
+      </p>
+      <button class="btn" id="btn-settings">Open site settings</button>
+      <input type="text" class="settings-url" id="settings-url" readonly aria-label="Site settings URL">
+    </div>
+  </main>
+
+  <script src="mic.js" type="module"></script>
+</body>
+</html>

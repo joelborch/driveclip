@@ -1,0 +1,7 @@
+# Never commit — private key controlling the pinned extension ID
+extension.pem
+pubkey.b64
+
+.DS_Store
+node_modules/
+.wrangler/

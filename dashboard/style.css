@@ -1,0 +1,655 @@
+/* DriveClip — share dashboard
+   Direction: bright, Linear-inspired product UI. Near-white surfaces, hairline
+   borders, quiet gray secondary text. Red exists only for the record lens.
+   See DESIGN.md (v2 — light). */
+
+:root {
+  --page: #f7f7f8;
+  --surface: #f4f5f6;
+  --card: #ffffff;
+  --line: #e4e5e9;
+  --line-strong: #d7d9de;
+  --text: #1b1d21;
+  --dim: #70747d;
+  --faint: #9ca0a8;
+  --red: #e5484d;
+  --green: #2f9e44;
+  --primary: #1f2126;
+  --primary-hover: #33363d;
+  --focus: #5e9ed6;
+
+  --amber-bg: #fff7e6;
+  --amber-line: #f2dfb7;
+  --amber-text: #8a6116;
+
+  --r-card: 12px;
+  --r-btn: 8px;
+
+  --shadow-sm: 0 1px 2px rgba(20, 21, 26, 0.06);
+  --shadow-card: 0 1px 3px rgba(20, 21, 26, 0.07), 0 0 0 1px rgba(20, 21, 26, 0.02);
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* only the landing hero uses this, and only index.html loads the webfont */
+  --display: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: rgba(94, 158, 214, 0.24);
+}
+
+/* ---------- small label type (sentence case, no tracked caps) ---------- */
+
+.eyebrow {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--dim);
+}
+
+/* ---------- page chrome ---------- */
+
+.page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: var(--r-btn);
+}
+
+.wordmark:focus-visible,
+.muted-link:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.muted-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dim);
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+.muted-link:hover {
+  color: var(--text);
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 40px 28px 48px;
+}
+
+.footer {
+  padding: 16px 28px 22px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+/* ---------- the record lens (the one place red is allowed) ---------- */
+
+.lens {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+
+.lens .lens-ring {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+}
+
+.lens .lens-disc {
+  fill: var(--red);
+}
+
+.lens-lg .lens-ring {
+  stroke-width: 1.25;
+}
+
+.lens-halo {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 1;
+  opacity: 0.28;
+  transform-origin: center;
+  animation: lens-breathe 4s ease-in-out infinite;
+}
+
+@keyframes lens-breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.08;
+    transform: scale(1.06);
+  }
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-btn);
+  background: var(--primary);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.btn:hover {
+  background: var(--primary-hover);
+}
+
+/* ghost secondary — white, hairline border, quiet label */
+.btn-quiet {
+  background: var(--card);
+  border-color: var(--line);
+  color: var(--dim);
+}
+
+.btn-quiet:hover {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+/* confirmation + failure states on the copy button */
+.btn.is-ok {
+  background: var(--green);
+  border-color: transparent;
+  color: #fff;
+}
+
+.btn.is-warn {
+  background: var(--amber-bg);
+  border-color: var(--amber-line);
+  color: var(--amber-text);
+  font-size: 13px;
+}
+
+/* ---------- viewer ---------- */
+
+.viewer {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* keep the player, its actions and the header on one screen where there's room */
+@media (min-width: 641px) {
+  .viewer {
+    max-width: min(960px, calc((100vh - 320px) * 16 / 9));
+  }
+}
+
+.viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.viewer-head .eyebrow {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+
+/* the one spot a mono id genuinely helps: it is a machine string */
+.viewer-head .file-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.file-id::before {
+  content: "id ";
+  color: var(--faint);
+}
+
+/* white card frame; the 16:9 well inside stays near-black — it's a screen */
+.player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.player iframe {
+  position: absolute;
+  inset: 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  border: 0;
+  border-radius: 7px;
+  display: block;
+  z-index: 1;
+}
+
+/* placeholder tone behind the Drive frame while it loads */
+.player-placeholder {
+  position: absolute;
+  inset: 8px;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: #17181b;
+  border-radius: 7px;
+  color: #9ca0a8;
+  font-size: 13px;
+}
+
+.player.is-ready .player-placeholder {
+  visibility: hidden;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9ca0a8;
+  flex: none;
+  animation: dot-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.viewer-actions .spacer {
+  flex: 1;
+}
+
+.hint {
+  color: var(--faint);
+  font-size: 13px;
+}
+
+.viewer-note {
+  margin: 14px 0 0;
+  color: var(--dim);
+  font-size: 14px;
+  max-width: 62ch;
+}
+
+/* ---------- not found ---------- */
+
+.card {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 28px 28px 26px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+}
+
+.card .eyebrow {
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+.card h1 {
+  margin: 0 0 10px;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+.card p {
+  margin: 0 0 8px;
+  color: var(--dim);
+  font-size: 15px;
+}
+
+.card .btn {
+  margin-top: 18px;
+}
+
+.card .card-shape {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-btn);
+  padding: 9px 12px;
+  margin: 14px 0 18px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* ---------- landing ---------- */
+
+.landing {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  align-items: center;
+  gap: 56px;
+}
+
+.hero .eyebrow {
+  margin-bottom: 16px;
+  color: var(--faint);
+}
+
+.hero h1 {
+  margin: 0 0 18px;
+  font-family: var(--display);
+  font-size: clamp(38px, 5.4vw, 58px);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  font-variation-settings: "wdth" 92, "opsz" 40;
+}
+
+.hero .lede {
+  margin: 0 0 26px;
+  max-width: 46ch;
+  color: var(--dim);
+  font-size: 16.5px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.install-note {
+  margin: 0;
+  color: var(--faint);
+  font-size: 13.5px;
+  max-width: 46ch;
+}
+
+.install-note code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+/* how a recording travels: source → drive → link */
+
+.path {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: 22px 24px 8px;
+}
+
+.path-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.path-head .eyebrow {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+
+.path-head .eyebrow small {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--dim);
+}
+
+.path-stop {
+  position: relative;
+  padding: 16px 0 16px 26px;
+}
+
+.path-stop::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 23px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+}
+
+.path-stop::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 30px;
+  bottom: -9px;
+  width: 1px;
+  background: var(--line);
+}
+
+.path-stop:last-child::after {
+  display: none;
+}
+
+.path-stop:last-child::before {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.path-stop .eyebrow {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.path-stop h2 {
+  margin: 3px 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.path-stop p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 900px) {
+  .landing {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .hero .lede,
+  .install-note {
+    max-width: none;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 15.5px;
+  }
+
+  .topbar {
+    padding: 14px 18px;
+  }
+
+  .main {
+    padding: 24px 18px 32px;
+  }
+
+  .footer {
+    padding: 14px 18px 20px;
+  }
+
+  .hero h1 {
+    font-size: clamp(32px, 9vw, 44px);
+  }
+
+  .hero .lede {
+    font-size: 15.5px;
+  }
+
+  .hero-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .viewer-head {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .viewer-actions .spacer {
+    display: none;
+  }
+
+  .viewer-actions .btn {
+    flex: 1 1 140px;
+  }
+
+  .hint {
+    flex-basis: 100%;
+  }
+
+  .card {
+    padding: 24px 20px;
+  }
+
+  .path {
+    padding: 20px 20px 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

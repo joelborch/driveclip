@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DriveClip</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="description" content="Watch a DriveClip recording." />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#FFFFFF" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <a class="wordmark" href="/">
+          <img class="lens" src="/mark-64.png" width="20" height="20" alt="" style="border-radius:5px">
+          DriveClip
+        </a>
+        <a class="muted-link" href="/">What is this?</a>
+      </header>
+
+      <main class="main" id="main"></main>
+
+      <footer class="footer">Hosted in Google Drive. DriveClip is not affiliated with Google.</footer>
+    </div>
+
+    <script>
+      // Cloudflare Pages serves 404.html for unknown paths, so /v/<FILE_ID> lands
+      // here with the id only available from the URL itself.
+      const ID_RE = /^[A-Za-z0-9_-]{10,}$/
+
+      function readFileId() {
+        const match = location.pathname.match(/^\/v\/([^/?#]+)\/?$/)
+        const raw = match ? decodeURIComponent(match[1]) : new URLSearchParams(location.search).get('id')
+        if (!raw) return null
+        return ID_RE.test(raw) ? raw : null
+      }
+
+      function el(tag, className, text) {
+        const node = document.createElement(tag)
+        if (className) node.className = className
+        if (text !== undefined) node.textContent = text
+        return node
+      }
+
+      function renderNotFound(main) {
+        const card = el('div', 'card')
+        card.append(
+          el('span', 'eyebrow', 'No recording id'),
+          el('h1', null, 'This link has no recording to play'),
+          el('p', null, 'A DriveClip link carries the Drive file id in the path:'),
+          el('div', 'card-shape', location.origin + '/v/<file-id>'),
+          el('p', null, 'The id is missing here, or it is not a valid Drive file id. Ask the sender for the full link — copying part of it is the usual cause.')
+        )
+        const home = el('a', 'btn', 'What is DriveClip?')
+        home.href = '/'
+        card.append(home)
+        main.append(card)
+      }
+
+      function renderViewer(main, fileId) {
+        const shareLink = location.origin + '/v/' + fileId
+        const driveLink = 'https://drive.google.com/file/d/' + fileId + '/view'
+
+        const viewer = el('div', 'viewer')
+
+        const head = el('div', 'viewer-head')
+        head.append(el('span', 'eyebrow', 'Recording'), el('span', 'eyebrow file-id', fileId))
+
+        const player = el('div', 'player')
+        const placeholder = el('div', 'player-placeholder')
+        placeholder.append(el('span', 'dot'), el('span', null, 'Loading player'))
+        const frame = document.createElement('iframe')
+        frame.src = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview'
+        frame.title = 'DriveClip recording'
+        frame.setAttribute('allow', 'autoplay; fullscreen')
+        frame.setAttribute('allowfullscreen', '')
+        frame.setAttribute('referrerpolicy', 'no-referrer')
+        frame.addEventListener('load', () => player.classList.add('is-ready'))
+        player.append(placeholder, frame)
+
+        const actions = el('div', 'viewer-actions')
+        const copy = el('button', 'btn', 'Copy link')
+        copy.type = 'button'
+        const open = el('a', 'btn btn-quiet', 'Open in Drive')
+        open.href = driveLink
+        open.target = '_blank'
+        open.rel = 'noopener noreferrer'
+        const spacer = el('span', 'spacer')
+        const hint = el('span', 'hint', 'Anyone with the link can watch')
+        actions.append(copy, open, spacer, hint)
+
+        const note = el(
+          'p',
+          'viewer-note',
+          'Just recorded? Drive needs a minute to process a fresh upload — reload if the player says it is still working.'
+        )
+
+        let flashTimer = 0
+        copy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(shareLink)
+            copy.textContent = 'Copied'
+            copy.classList.add('is-ok')
+          } catch (err) {
+            console.error('Clipboard write failed', err)
+            copy.textContent = 'Press Ctrl/Cmd+C'
+            copy.classList.add('is-warn')
+          }
+          clearTimeout(flashTimer)
+          flashTimer = setTimeout(() => {
+            copy.textContent = 'Copy link'
+            copy.classList.remove('is-ok', 'is-warn')
+          }, 1600)
+        })
+
+        viewer.append(head, player, actions, note)
+        main.append(viewer)
+      }
+
+      const main = document.getElementById('main')
+      const fileId = readFileId()
+      if (fileId) {
+        renderViewer(main, fileId)
+      } else {
+        document.title = 'Recording not found — DriveClip'
+        renderNotFound(main)
+      }
+    </script>
+  </body>
+</html>

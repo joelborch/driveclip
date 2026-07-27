@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DriveClip</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header class="top">
+  <svg class="mark" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+    <circle cx="7" cy="7" r="6.25" fill="none" stroke="#E5484D" stroke-width="1.5" opacity="0.35"/>
+    <circle cx="7" cy="7" r="3.4" fill="#E5484D"/>
+  </svg>
+  <span class="word">DriveClip</span>
+</header>
+
+<main>
+  <section id="view-onboarding" class="view" hidden>
+    <h1 class="headline">Screen recordings, straight to your&nbsp;Drive</h1>
+    <p class="lede">Record a tab or your screen. The video streams into your own Google Drive and you get a share link the moment you stop.</p>
+    <button id="btn-signin" class="btn btn-primary">Connect Google Drive</button>
+    <p id="signin-status" class="hint center" hidden></p>
+    <p id="signin-error" class="inline-error" hidden></p>
+    <div id="mic-notice-onboarding" class="notice" hidden>
+      <span>Chrome needs a one-time mic permission for narration.</span>
+      <button class="notice-btn" data-mic-enable>Enable</button>
+    </div>
+  </section>
+
+  <section id="view-ready" class="view" hidden>
+    <div class="field">
+      <span class="label">Source</span>
+      <div class="segmented" role="radiogroup" aria-label="Recording source">
+        <button type="button" class="seg" role="radio" data-mode="tab" aria-checked="true">This tab</button>
+        <button type="button" class="seg" role="radio" data-mode="desktop" aria-checked="false">Screen</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="label">Microphone</span>
+      <label class="switch">
+        <input id="mic-toggle" type="checkbox">
+        <span class="track" aria-hidden="true"></span>
+      </label>
+    </div>
+    <div id="mic-notice-ready" class="notice" hidden>
+      <span>Mic stays silent until you allow it once.</span>
+      <button class="notice-btn" data-mic-enable>Enable</button>
+    </div>
+    <div class="record-zone">
+      <button id="btn-record" class="record" aria-label="Start recording"></button>
+      <span id="record-label" class="hint">Start recording</span>
+    </div>
+    <p id="ready-error" class="inline-error" hidden></p>
+  </section>
+
+  <section id="view-recording" class="view" hidden>
+    <div class="rec-live"><span class="rec-dot" aria-hidden="true"></span>Recording</div>
+    <div id="timer" class="timer">00:00</div>
+    <button id="btn-stop" class="btn btn-stop">Stop recording</button>
+    <p class="hint center">Uploads to Drive while you record.</p>
+  </section>
+
+  <section id="view-uploading" class="view" hidden>
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="status-title">Finishing upload…</p>
+    <p id="uploaded-bytes" class="hint center">0.0 MB uploaded</p>
+  </section>
+
+  <section id="view-done" class="view" hidden>
+    <div class="done-head">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <circle cx="9" cy="9" r="8.5" fill="#EAF7EE"/>
+        <path d="M5.4 9.3l2.3 2.3 4.9-5" fill="none" stroke="#2F9E44" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Link ready to share
+    </div>
+    <div class="link-row">
+      <input id="share-link" readonly spellcheck="false" aria-label="Share link">
+      <button id="btn-copy" class="btn btn-primary btn-sm">Copy link</button>
+    </div>
+    <div class="done-foot">
+      <a id="drive-link" class="text-link" href="#" target="_blank" rel="noreferrer">Open in Drive</a>
+      <button id="btn-new" class="btn btn-ghost btn-sm">New recording</button>
+    </div>
+    <p class="hint">Drive may show “processing” for a minute on long clips.</p>
+  </section>
+
+  <section id="view-error" class="view" hidden>
+    <p id="error-message" class="error-panel"></p>
+    <button id="btn-retry" class="btn btn-primary">Try again</button>
+  </section>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

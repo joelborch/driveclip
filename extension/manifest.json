@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr7MX9wpV1Xxpgra1tRGs0JAmu20ldepBq2atq2nnlmJDd1k0gJCxMHjI207OA7eY6QHmzldhsjQzZwkU1hrZnBYMRGN1hQY6WFSrKcJb6VruCA5GSbnCJBMGQcUol5BJM563nypdMoykMnnCTr0TTBApFHsDBwg4XDe+3ruwtZj1/l9bL3yLxGulyVjXFMIsqL4AIXpg33F7BH4SFVpn5cvD63qWMZT95U6XYgaxrVWIIAhoLmOmltgHFbVWTkskM9T/Z4vqh5bmdiwtyuRU96gD28DUdz+qrnzSDoqRA21yNx1l+3K7dxO8am7QXulwLNsfK6pFksbBnUDc8/TKeQIDAQAB",
+  "name": "DriveClip",
+  "version": "0.1.0",
+  "description": "Record a tab or your desktop with mic narration and stream it straight into your Google Drive.",
+  "permissions": [
+    "offscreen",
+    "tabCapture",
+    "desktopCapture",
+    "identity",
+    "storage",
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://www.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "DriveClip",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "oauth2": {
+    "client_id": "439781044669-rc3mov24beo1k016s8heagr36ghki0ph.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.file"
+    ]
+  }
+}
