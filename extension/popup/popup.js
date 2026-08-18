@@ -279,7 +279,13 @@ el.recordBtn.addEventListener('click', async () => {
   showInlineError(el.readyError, '')
   render()
   try {
-    const response = await send('start-recording', { mode: settings.mode, mic: settings.mic })
+    const response = await send('start-recording', {
+      mode: settings.mode,
+      mic: settings.mic,
+      // The service worker has no window, so the popup reports the display's
+      // pixel density; it shares a display with the tab being captured.
+      devicePixelRatio: window.devicePixelRatio || 1
+    })
     if (!response.ok) {
       starting = false
       showInlineError(el.readyError, response.error || 'Could not start recording.')

@@ -219,17 +219,28 @@ async function handleSignIn () {
   return folderId
 }
 
-async function handleStartRecording ({ mode, mic }) {
+async function handleStartRecording ({ mode, mic, devicePixelRatio }) {
   const { folderId } = await chrome.storage.local.get('folderId')
   if (!folderId) throw new Error('Connect Google Drive before recording.')
 
   const token = await freshToken()
 
   let streamId = null
+  let captureSize = null
   if (mode === 'tab') {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (!tab?.id) throw new Error('No active tab to record.')
     streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id })
+    // Tab capture delivers CSS-pixel frames unless a min floor asks for device
+    // pixels, so request viewport × density (the offscreen doc drops the floor
+    // and retries if Chrome rejects it).
+    const scale = Math.min(Math.max(devicePixelRatio || 1, 1), 3)
+    if (tab.width && tab.height) {
+      captureSize = {
+        minWidth: Math.min(3840, Math.round(tab.width * scale)),
+        minHeight: Math.min(2160, Math.round(tab.height * scale))
+      }
+    }
   } else {
     // The source picker must be summoned from here: an offscreen document has
     // no user activation and the display-capture permissions policy disabled,
@@ -245,6 +256,7 @@ async function handleStartRecording ({ mode, mic }) {
       mode,
       mic: Boolean(mic),
       streamId,
+      captureSize,
       token,
       folderId,
       fileName: buildFileName()

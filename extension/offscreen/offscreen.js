@@ -1,13 +1,22 @@
 import { SHARE_BASE, TIMESLICE_MS } from '../lib/config.js'
 import { createResumableSession, ChunkedUploader } from '../lib/drive.js'
 
-const VIDEO_BITS_PER_SECOND = 8_000_000
-
 const MIME_CANDIDATES = [
   'video/webm;codecs=vp9,opus',
   'video/webm;codecs=vp8,opus',
   'video/webm'
 ]
+
+function computeVideoBitrate (videoTrack) {
+  const settings = videoTrack && typeof videoTrack.getSettings === 'function' ? videoTrack.getSettings() : null
+  const width = (settings && settings.width) || 1920
+  const height = (settings && settings.height) || 1080
+  const pixels = width * height
+
+  // 1080p (~2.07M px) -> 10 Mbps; 1440p (~3.68M px) -> ~17.8 Mbps; 4K (~8.29M px) -> 24-25 Mbps
+  const targetBps = Math.round((pixels / (1920 * 1080)) * 10_000_000)
+  return Math.max(8_000_000, Math.min(25_000_000, targetBps))
+}
 
 /**
  * The single in-flight recording. Null whenever we are idle, so a stray
@@ -45,7 +54,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function start (payload) {
   if (session) throw new Error('A recording is already in progress')
 
-  const { mode, mic, streamId, token, folderId, fileName } = payload
+  const { mode, mic, streamId, captureSize, token, folderId, fileName } = payload
   if (mode !== 'tab' && mode !== 'desktop') throw new Error(`Unknown capture mode: ${mode}`)
   if (!streamId) throw new Error('Missing capture stream id')
   if (!token) throw new Error('Missing Google access token')
@@ -69,12 +78,19 @@ async function start (payload) {
   }
   const s = session
 
-  s.captureStream = await capture(mode, streamId)
+  s.captureStream = await capture(mode, streamId, captureSize)
   if (s !== session) throw new Error('Recording was cancelled')
 
   if (mic) {
     try {
-      s.micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      s.micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000
+        }
+      })
     } catch (err) {
       // A missing or denied microphone must not kill the recording.
       console.warn('[DriveClip] microphone unavailable, recording without it', err)
@@ -96,9 +112,13 @@ async function start (payload) {
     notify('upload-progress', { uploadedBytes, elapsedMs: s.startedAt ? Date.now() - s.startedAt : 0 })
   }
 
+  const videoTrack = s.recordedStream.getVideoTracks()[0]
+  const videoBitsPerSecond = computeVideoBitrate(videoTrack)
+
   const recorder = new MediaRecorder(s.recordedStream, {
     mimeType: pickMimeType(),
-    videoBitsPerSecond: VIDEO_BITS_PER_SECOND
+    videoBitsPerSecond,
+    audioBitsPerSecond: 192_000
   })
   s.recorder = recorder
 
@@ -126,26 +146,51 @@ async function start (payload) {
   notify('recording-started', {})
 }
 
-async function capture (mode, streamId) {
+async function capture (mode, streamId, captureSize) {
+  const hasFloor = Boolean(captureSize && captureSize.minWidth && captureSize.minHeight)
+  const videoConstraints = (withFloor) => {
+    const mandatory = {
+      chromeMediaSource: mode,
+      chromeMediaSourceId: streamId,
+      maxWidth: 3840,
+      maxHeight: 2160,
+      maxFrameRate: 60
+    }
+    // max* only caps: tab capture stays at CSS-pixel size without a min floor
+    // asking for the display's device pixels.
+    if (withFloor && hasFloor) {
+      mandatory.minWidth = Math.min(captureSize.minWidth, mandatory.maxWidth)
+      mandatory.minHeight = Math.min(captureSize.minHeight, mandatory.maxHeight)
+    }
+    return { mandatory }
+  }
+
   if (mode === 'tab') {
-    return navigator.mediaDevices.getUserMedia({
-      audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
-      video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } }
-    })
+    const audio = { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } }
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio, video: videoConstraints(true) })
+    } catch (err) {
+      // A mandatory min the source can't satisfy rejects the whole request;
+      // a CSS-pixel recording beats no recording.
+      if (!hasFloor) throw err
+      console.warn('[DriveClip] native-resolution tab capture rejected, retrying without the floor', err)
+      return navigator.mediaDevices.getUserMedia({ audio, video: videoConstraints(false) })
+    }
   }
   // Desktop sources arrive as a chooseDesktopMedia stream id picked in the
   // service worker; getDisplayMedia is unavailable to an offscreen document.
-  const video = { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: streamId } }
+  // No min floor here: the picked source may be a small window, and desktop
+  // capture already delivers device pixels for screens.
   try {
     return await navigator.mediaDevices.getUserMedia({
       audio: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: streamId } },
-      video
+      video: videoConstraints(false)
     })
   } catch (err) {
     // System audio is only offered for some sources (and not on every platform);
     // asking for it against a source that has none rejects the whole request.
     console.warn('[DriveClip] desktop capture without system audio', err)
-    return navigator.mediaDevices.getUserMedia({ audio: false, video })
+    return navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints(false) })
   }
 }
 
@@ -158,7 +203,12 @@ async function buildRecordedStream (s) {
   const tracks = []
 
   const videoTrack = s.captureStream.getVideoTracks()[0]
-  if (videoTrack) tracks.push(videoTrack)
+  if (videoTrack) {
+    if ('contentHint' in videoTrack) {
+      videoTrack.contentHint = 'detail'
+    }
+    tracks.push(videoTrack)
+  }
 
   const captureAudio = s.captureStream.getAudioTracks()
   const micAudio = s.micStream ? s.micStream.getAudioTracks() : []
