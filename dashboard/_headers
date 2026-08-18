@@ -1,5 +1,7 @@
 /*
   X-Robots-Tag: noindex, nofollow
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
 
 /style.css
   Cache-Control: public, max-age=300, must-revalidate
