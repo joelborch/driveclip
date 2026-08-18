@@ -31,6 +31,12 @@
       // here with the id only available from the URL itself.
       const ID_RE = /^[A-Za-z0-9_-]{10,}$/
 
+      // A Google API key restricted to the Drive API and this site's referrer.
+      // With a key the page streams the ORIGINAL file bytes (full capture
+      // quality, no processing wait); without one — or when the stream fails —
+      // it falls back to Drive's transcoded preview player.
+      const DRIVE_API_KEY = 'AIzaSyBfTn_-1FyHwAYB4aSkfyEv2dhb6xo2gWM'
+
       function readFileId() {
         const match = location.pathname.match(/^\/v\/([^/?#]+)\/?$/)
         const raw = match ? decodeURIComponent(match[1]) : new URLSearchParams(location.search).get('id')
@@ -72,14 +78,39 @@
         const player = el('div', 'player')
         const placeholder = el('div', 'player-placeholder')
         placeholder.append(el('span', 'dot'), el('span', null, 'Loading player'))
-        const frame = document.createElement('iframe')
-        frame.src = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview'
-        frame.title = 'DriveClip recording'
-        frame.setAttribute('allow', 'autoplay; fullscreen')
-        frame.setAttribute('allowfullscreen', '')
-        frame.setAttribute('referrerpolicy', 'no-referrer')
-        frame.addEventListener('load', () => player.classList.add('is-ready'))
-        player.append(placeholder, frame)
+        player.append(placeholder)
+
+        function mountPreviewFrame() {
+          const frame = document.createElement('iframe')
+          frame.src = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview'
+          frame.title = 'DriveClip recording'
+          frame.setAttribute('allow', 'autoplay; fullscreen')
+          frame.setAttribute('allowfullscreen', '')
+          frame.setAttribute('referrerpolicy', 'no-referrer')
+          frame.addEventListener('load', () => player.classList.add('is-ready'))
+          player.append(frame)
+        }
+
+        if (DRIVE_API_KEY) {
+          const video = document.createElement('video')
+          video.controls = true
+          video.playsInline = true
+          video.preload = 'metadata'
+          video.src = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) +
+            '?alt=media&key=' + encodeURIComponent(DRIVE_API_KEY)
+          video.addEventListener('loadeddata', () => player.classList.add('is-ready'))
+          // A key without access, a deleted file, or a codec this browser can't
+          // decode all surface here; the transcoded player handles those cases.
+          video.addEventListener('error', () => {
+            console.warn('Original stream unavailable, falling back to the Drive player')
+            player.classList.remove('is-ready')
+            video.remove()
+            mountPreviewFrame()
+          }, { once: true })
+          player.append(video)
+        } else {
+          mountPreviewFrame()
+        }
 
         const actions = el('div', 'viewer-actions')
         const copy = el('button', 'btn', 'Copy link')

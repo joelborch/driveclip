@@ -304,7 +304,8 @@ a {
   overflow: hidden;
 }
 
-.player iframe {
+.player iframe,
+.player video {
   position: absolute;
   inset: 8px;
   width: calc(100% - 16px);
@@ -313,6 +314,11 @@ a {
   border-radius: 7px;
   display: block;
   z-index: 1;
+}
+
+.player video {
+  object-fit: contain;
+  background: #17181b;
 }
 
 /* placeholder tone behind the Drive frame while it loads */
