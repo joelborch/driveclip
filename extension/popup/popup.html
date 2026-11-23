@@ -13,7 +13,7 @@
 <main>
   <section id="view-onboarding" class="view" hidden>
     <h1 class="headline">Screen recordings, straight to Drive</h1>
-    <p class="lede">Record a tab or screen and get a Drive share link when you stop.</p>
+    <p class="lede">Record a tab or screen, then upload to your Drive for an instant share link.</p>
     <button id="btn-signin" class="btn btn-primary">Connect Google Drive</button>
     <p id="signin-status" class="hint center" hidden></p>
     <p id="signin-error" class="inline-error" hidden></p>
@@ -52,7 +52,7 @@
   <section id="view-uploading" class="view" hidden>
     <div class="spinner" aria-hidden="true"></div>
     <p class="status-title">Uploading to Drive…</p>
-    <p id="uploaded-bytes" class="hint center"></p>
+    <p id="uploaded-bytes" class="hint center">0.0 MB uploaded</p>
   </section>
 
   <section id="view-done" class="view" hidden>
@@ -69,9 +69,14 @@
 
   <section id="view-error" class="view" hidden>
     <p id="error-message" class="inline-error"></p>
+    <p id="pending-note" class="hint" hidden>Your recording is saved locally until you upload, save, or discard it.</p>
     <button id="btn-retry" class="btn btn-primary">Try again</button>
+    <div id="pending-actions" class="done-foot" hidden>
+      <button id="btn-save-local" class="btn btn-ghost btn-sm">Save locally</button>
+      <button id="btn-discard" class="text-link">Discard recording</button>
+    </div>
   </section>
 </main>
-<script src="popup.js"></script>
+<script type="module" src="popup.js"></script>
 </body>
 </html>

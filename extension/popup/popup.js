@@ -1,3 +1,5 @@
+import { readPendingRecording } from '../lib/recording-store.js';
+
 const $ = (id) => document.getElementById(id);
 const views = ['onboarding', 'ready', 'recording', 'uploading', 'done', 'error'];
 const modeButtons = [...document.querySelectorAll('.seg')];
@@ -21,6 +23,7 @@ async function send(type, payload = {}) {
 const showView = (name) => views.forEach((v) => { $(`view-${v}`).hidden = v !== name; });
 const showError = (id, msg) => { $(id).textContent = msg || ''; $(id).hidden = !msg; };
 const pad = (n) => String(n).padStart(2, '0');
+const fmtMb = (bytes) => ((bytes || 0) / (1024 * 1024)).toFixed(1);
 const fmtTime = (ms) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600);
@@ -42,18 +45,24 @@ function updateTimer() {
   if (state?.status === 'recording') $('timer').textContent = fmtTime(Date.now() - (state.startedAt || Date.now()));
 }
 
+function formatUploadProgress(s) {
+  if (s.totalBytes > 0) return `${fmtMb(s.uploadedBytes)} / ${fmtMb(s.totalBytes)} MB uploaded`;
+  return `${fmtMb(s.uploadedBytes)} MB uploaded`;
+}
+
 function render() {
   if (!state) return;
   if (starting && Date.now() - startingSince > 20000) { starting = false; showError('ready-error', 'Recording did not start. Try again.'); }
   if (state.status !== 'idle') starting = false;
   if (state.status !== 'recording') stopping = false;
 
-  if (!state.onboarded) {
+  if (!state.onboarded && !state.hasPendingRecording) {
     showView('onboarding');
     renderMicNotice('onboarding');
     $('btn-signin').disabled = signingIn;
     $('signin-status').hidden = !signingIn;
     if (signingIn) $('signin-status').textContent = 'Waiting for Google…';
+    if (state.error) showError('signin-error', state.error);
     return;
   }
   const effective = state.status === 'recording' && stopping ? 'uploading' : state.status;
@@ -63,7 +72,7 @@ function render() {
     updateTimer();
   } else if (effective === 'uploading') {
     showView('uploading');
-    $('uploaded-bytes').textContent = state.uploadedBytes ? `${(state.uploadedBytes / (1024 * 1024)).toFixed(1)} MB` : 'Preparing file…';
+    $('uploaded-bytes').textContent = formatUploadProgress(state);
   } else if (effective === 'done') {
     showView('done');
     $('share-link').value = state.shareLink || '';
@@ -72,6 +81,10 @@ function render() {
   } else if (effective === 'error') {
     showView('error');
     $('error-message').textContent = state.error || 'Something went wrong.';
+    const hasPending = Boolean(state.hasPendingRecording);
+    $('pending-note').hidden = !hasPending;
+    $('pending-actions').hidden = !hasPending;
+    $('btn-retry').textContent = hasPending ? 'Try again' : 'Back';
   } else {
     showView('ready');
     renderSettings();
@@ -157,12 +170,56 @@ $('btn-copy').addEventListener('click', async () => {
 
 $('share-link').addEventListener('focus', () => $('share-link').select());
 
-[$('btn-new'), $('btn-retry')].forEach((b) => b.addEventListener('click', async () => {
-  b.disabled = true;
+$('btn-new').addEventListener('click', async () => {
+  $('btn-new').disabled = true;
   await send('reset').catch(() => {});
-  b.disabled = false;
+  $('btn-new').disabled = false;
   await refresh();
-}));
+});
+
+$('btn-retry').addEventListener('click', async () => {
+  $('btn-retry').disabled = true;
+  try {
+    if (state?.hasPendingRecording) {
+      const res = await send('retry-upload');
+      if (!res?.ok) $('error-message').textContent = res?.error || 'Could not restart upload.';
+    } else {
+      await send('reset');
+    }
+  } catch (err) {
+    $('error-message').textContent = err.message;
+  } finally {
+    $('btn-retry').disabled = false;
+    await refresh();
+  }
+});
+
+$('btn-save-local').addEventListener('click', async () => {
+  $('btn-save-local').disabled = true;
+  try {
+    const file = await readPendingRecording();
+    if (!file) throw new Error('Saved recording was not found on disk.');
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = state?.pendingFileName || 'DriveClip recording.webm';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    $('error-message').textContent = err.message;
+  } finally {
+    $('btn-save-local').disabled = false;
+  }
+});
+
+$('btn-discard').addEventListener('click', async () => {
+  $('btn-discard').disabled = true;
+  await send('discard-recording').catch(() => {});
+  $('btn-discard').disabled = false;
+  await refresh();
+});
 
 (async () => {
   const saved = (await chrome.storage.local.get('settings')).settings || {};

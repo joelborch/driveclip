@@ -14,7 +14,8 @@ APIs here have sharp edges that are already accounted for.
 | `extension/popup/` | All UI. Stateless renderer of the worker's `State` object | ids/classes are load-bearing (see below) |
 | `extension/background/service-worker.js` | State machine, OAuth, offscreen lifecycle | resets stale state only when no offscreen document is alive |
 | `extension/offscreen/` | Capture, WebAudio mix graph, MediaRecorder, upload pump | the ONLY place media APIs may be called |
-| `extension/lib/drive.js` | Pure-fetch Drive v3 client + single-PUT resumable upload on stop | no `chrome.*` calls, ever |
+| `extension/lib/drive.js` | Pure-fetch Drive v3 client (folder verify + resumable chunked upload on stop) | no `chrome.*` calls, ever |
+| `extension/lib/recording-store.js` | Disk-backed OPFS chunk writer/reader/deleter | chunks stream to disk, never held in RAM; kept until upload succeeds or discarded |
 | `extension/lib/config.js` | Constants incl. `SHARE_BASE` | `SHARE_BASE` ends with `/v/` |
 | `extension/permissions/mic.html` | One-time mic grant page (offscreen docs cannot prompt) | opened via `chrome.tabs.create` |
 | `dashboard/` | Static share site, no build step | `404.html` byte-identical to `v.html`; asset links root-absolute |
@@ -61,8 +62,9 @@ node --check extension/background/service-worker.js
 node --check extension/offscreen/offscreen.js
 node --check extension/popup/popup.js
 node --check extension/lib/drive.js
+node --check extension/lib/recording-store.js
 node --check extension/permissions/mic.js
-node --test tests/drive.test.mjs
+node --test tests/*.test.mjs
 cmp dashboard/v.html dashboard/404.html
 ```
 
@@ -79,7 +81,7 @@ cmp dashboard/v.html dashboard/404.html
   `[data-mic-enable]` buttons. Views are toggled via the `hidden` attribute.
 - **Viewer id rule** — file ids must match `^[A-Za-z0-9_-]{10,}$` and be inserted with
   DOM APIs only (no HTML string templating).
-- **Drive upload** — `uploadRecording` opens a resumable upload session with `X-Upload-Content-Length` and PUTs the completed WebM blob on stop (handling files > 5 MB with 401 token refresh and 5xx/network retries).
+- **Drive upload** — `handleStartRecording` verifies the OAuth token and target folder (`verifyRecordingsFolder`) before capture so a bad sign-in or trashed folder fails immediately. During recording, chunks stream to OPFS (`lib/recording-store.js`) instead of RAM. On stop, `uploadRecording` uploads the OPFS file in 4 MiB (256 KiB-aligned) resumable chunks, handling `308 Resume Incomplete`, `401` token refresh, and exponential backoff with `Content-Range: bytes */<total>` offset queries on `429`/`5xx`/network errors. A failed upload keeps the OPFS file so the user can retry upload, save locally, or discard.
 
 ## Sharp edges already handled (do not "fix" these into bugs)
 
@@ -94,8 +96,8 @@ cmp dashboard/v.html dashboard/404.html
   (a suspended context records pure silence).
 - Mic permission cannot be prompted from an offscreen document —
   `extension/permissions/mic.html` exists solely to obtain the persistent grant.
-- WebM duration metadata is intentionally not patched (streaming upload makes it
-  impossible); Drive's transcode provides seekability. Not a bug.
+- WebM duration metadata is intentionally not patched (MediaRecorder outputs a live-stream
+  WebM without duration header); Drive's transcode provides seekability. Not a bug.
 - `chrome.identity` tokens are evicted via `chrome.storage.session`-persisted handles so
   a worker restart doesn't break the 401-refresh path.
 
