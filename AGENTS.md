@@ -106,3 +106,8 @@ cmp dashboard/v.html dashboard/404.html
 Vanilla JS (ES modules), no frameworks, no build step, Chrome 116+. UI follows
 DESIGN.md (light, Linear-inspired; red = recording only). Comments only where a Chrome
 API quirk demands explanation. Sentence case in all UI copy.
+
+## Ask before
+
+- `wrangler pages deploy dashboard --project-name <project> --branch main` — this publishes the live share site.
+- Anything that changes the extension's pinned `key`/id or the OAuth client, since both are per-deployment identity.
