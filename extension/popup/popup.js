@@ -1,360 +1,176 @@
-const POLL_MS = 1000
-const TIMER_MS = 250
-const START_TIMEOUT_MS = 20000
+const $ = (id) => document.getElementById(id);
+const views = ['onboarding', 'ready', 'recording', 'uploading', 'done', 'error'];
+const modeButtons = [...document.querySelectorAll('.seg')];
 
-const DEFAULT_SETTINGS = { mode: 'tab', mic: true }
-const MIC_PAGE = 'permissions/mic.html'
-
-const el = {
-  views: {
-    onboarding: document.getElementById('view-onboarding'),
-    ready: document.getElementById('view-ready'),
-    recording: document.getElementById('view-recording'),
-    uploading: document.getElementById('view-uploading'),
-    done: document.getElementById('view-done'),
-    error: document.getElementById('view-error')
-  },
-  signInBtn: document.getElementById('btn-signin'),
-  signInStatus: document.getElementById('signin-status'),
-  signInError: document.getElementById('signin-error'),
-  modeButtons: Array.from(document.querySelectorAll('.seg')),
-  micToggle: document.getElementById('mic-toggle'),
-  recordBtn: document.getElementById('btn-record'),
-  recordLabel: document.getElementById('record-label'),
-  readyError: document.getElementById('ready-error'),
-  timer: document.getElementById('timer'),
-  stopBtn: document.getElementById('btn-stop'),
-  uploadedBytes: document.getElementById('uploaded-bytes'),
-  shareLink: document.getElementById('share-link'),
-  copyBtn: document.getElementById('btn-copy'),
-  driveLink: document.getElementById('drive-link'),
-  newBtn: document.getElementById('btn-new'),
-  errorMessage: document.getElementById('error-message'),
-  retryBtn: document.getElementById('btn-retry'),
-  micNotices: {
-    onboarding: document.getElementById('mic-notice-onboarding'),
-    ready: document.getElementById('mic-notice-ready')
-  },
-  micEnableButtons: Array.from(document.querySelectorAll('[data-mic-enable]'))
-}
-
-let settings = { ...DEFAULT_SETTINGS }
-let state = null
-// 'unknown' when the Permissions API can't answer — we stay quiet rather than warn wrongly.
-let micPermission = 'unknown'
-let micStatus = null
-let starting = false
-let startingSince = 0
-let stopping = false
-let signingIn = false
-let copyFlashTimer = null
-let pollTimer = null
-let tickTimer = null
+let settings = { mode: 'tab', mic: true };
+let state = null;
+let micPermission = 'unknown';
+let micStatus = null;
+let starting = false;
+let startingSince = 0;
+let stopping = false;
+let signingIn = false;
+let copyTimer = null;
 
 async function send(type, payload = {}) {
-  try {
-    const response = await chrome.runtime.sendMessage({ type, target: 'background', payload })
-    if (response === undefined) {
-      throw new Error('No response from the DriveClip background service.')
-    }
-    return response
-  } catch (error) {
-    console.error('popup: message failed', type, error)
-    throw error instanceof Error ? error : new Error(String(error))
-  }
+  const res = await chrome.runtime.sendMessage({ type, target: 'background', payload });
+  if (res === undefined) throw new Error('No response from DriveClip background.');
+  return res;
 }
 
-async function loadSettings() {
-  const stored = await chrome.storage.local.get('settings')
-  const saved = stored && stored.settings ? stored.settings : {}
-  settings = {
-    mode: saved.mode === 'desktop' ? 'desktop' : 'tab',
-    mic: typeof saved.mic === 'boolean' ? saved.mic : DEFAULT_SETTINGS.mic
-  }
-}
+const showView = (name) => views.forEach((v) => { $(`view-${v}`).hidden = v !== name; });
+const showError = (id, msg) => { $(id).textContent = msg || ''; $(id).hidden = !msg; };
+const pad = (n) => String(n).padStart(2, '0');
+const fmtTime = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  return h ? `${h}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}` : `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+};
 
-async function saveSettings() {
-  await chrome.storage.local.set({ settings })
-}
-
-async function refreshMicPermission() {
-  if (!navigator.permissions || !navigator.permissions.query) {
-    micPermission = 'unknown'
-    return
-  }
-  try {
-    const status = await navigator.permissions.query({ name: 'microphone' })
-    micPermission = status.state
-    if (status !== micStatus) {
-      micStatus = status
-      // The grant usually happens in the mic tab, not here, so react to it live.
-      status.addEventListener('change', () => {
-        micPermission = status.state
-        render()
-      })
-    }
-  } catch (error) {
-    console.warn('popup: microphone permission query unavailable', error)
-    micPermission = 'unknown'
-  }
+function renderSettings() {
+  modeButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === settings.mode)));
+  $('mic-toggle').checked = settings.mic;
 }
 
 function renderMicNotice(view) {
-  const needsMic = settings.mic && micPermission !== 'granted' && micPermission !== 'unknown'
-  for (const [key, node] of Object.entries(el.micNotices)) {
-    node.hidden = !(needsMic && key === view)
-  }
-}
-
-function formatDuration(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = total % 60
-  const pad = (n) => String(n).padStart(2, '0')
-  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`
-}
-
-function formatMegabytes(bytes) {
-  return `${((bytes || 0) / (1024 * 1024)).toFixed(1)} MB uploaded`
-}
-
-function showView(name) {
-  for (const [key, node] of Object.entries(el.views)) {
-    node.hidden = key !== name
-  }
-}
-
-function showInlineError(node, message) {
-  if (message) {
-    node.textContent = message
-    node.hidden = false
-  } else {
-    node.textContent = ''
-    node.hidden = true
-  }
-}
-
-function renderSettings() {
-  for (const button of el.modeButtons) {
-    button.setAttribute('aria-checked', String(button.dataset.mode === settings.mode))
-  }
-  el.micToggle.checked = settings.mic
+  const show = settings.mic && micPermission !== 'granted' && micPermission !== 'unknown';
+  $('mic-notice-onboarding').hidden = !(show && view === 'onboarding');
+  $('mic-notice-ready').hidden = !(show && view === 'ready');
 }
 
 function updateTimer() {
-  if (!state || state.status !== 'recording') return
-  const startedAt = state.startedAt || Date.now()
-  el.timer.textContent = formatDuration(Date.now() - startedAt)
+  if (state?.status === 'recording') $('timer').textContent = fmtTime(Date.now() - (state.startedAt || Date.now()));
 }
 
 function render() {
-  if (!state) return
-
-  if (starting && Date.now() - startingSince > START_TIMEOUT_MS) {
-    starting = false
-    showInlineError(el.readyError, 'Recording did not start. Try again.')
-  }
-  if (state.status !== 'idle') starting = false
-  if (state.status !== 'recording') stopping = false
+  if (!state) return;
+  if (starting && Date.now() - startingSince > 20000) { starting = false; showError('ready-error', 'Recording did not start. Try again.'); }
+  if (state.status !== 'idle') starting = false;
+  if (state.status !== 'recording') stopping = false;
 
   if (!state.onboarded) {
-    showView('onboarding')
-    renderMicNotice('onboarding')
-    el.signInBtn.disabled = signingIn
-    el.signInStatus.hidden = !signingIn
-    if (signingIn) el.signInStatus.textContent = 'Waiting for Google…'
-    return
+    showView('onboarding');
+    renderMicNotice('onboarding');
+    $('btn-signin').disabled = signingIn;
+    $('signin-status').hidden = !signingIn;
+    if (signingIn) $('signin-status').textContent = 'Waiting for Google…';
+    return;
   }
+  const effective = state.status === 'recording' && stopping ? 'uploading' : state.status;
+  if (effective === 'recording') {
+    showView('recording');
+    $('btn-stop').disabled = false;
+    updateTimer();
+  } else if (effective === 'uploading') {
+    showView('uploading');
+    $('uploaded-bytes').textContent = state.uploadedBytes ? `${(state.uploadedBytes / (1024 * 1024)).toFixed(1)} MB` : 'Preparing file…';
+  } else if (effective === 'done') {
+    showView('done');
+    $('share-link').value = state.shareLink || '';
+    $('drive-link').href = state.driveLink || '#';
+    $('drive-link').hidden = !state.driveLink;
+  } else if (effective === 'error') {
+    showView('error');
+    $('error-message').textContent = state.error || 'Something went wrong.';
+  } else {
+    showView('ready');
+    renderSettings();
+    renderMicNotice('ready');
+    $('btn-record').disabled = starting;
+    $('record-label').textContent = starting ? 'Starting…' : 'Start recording';
+  }
+}
 
-  if (state.status === 'recording' && stopping) {
-    showView('uploading')
-    el.uploadedBytes.textContent = formatMegabytes(state.uploadedBytes)
-    return
-  }
-
-  switch (state.status) {
-    case 'recording': {
-      showView('recording')
-      el.stopBtn.disabled = false
-      updateTimer()
-      return
+async function refreshMic() {
+  try {
+    const status = await navigator.permissions?.query?.({ name: 'microphone' });
+    if (!status) return;
+    micPermission = status.state;
+    if (status !== micStatus) {
+      micStatus = status;
+      status.addEventListener('change', () => { micPermission = status.state; render(); });
     }
-    case 'uploading': {
-      showView('uploading')
-      el.uploadedBytes.textContent = formatMegabytes(state.uploadedBytes)
-      return
-    }
-    case 'done': {
-      showView('done')
-      el.shareLink.value = state.shareLink || ''
-      el.driveLink.href = state.driveLink || '#'
-      el.driveLink.hidden = !state.driveLink
-      return
-    }
-    case 'error': {
-      showView('error')
-      el.errorMessage.textContent = state.error || 'Something went wrong.'
-      return
-    }
-    default: {
-      showView('ready')
-      renderSettings()
-      renderMicNotice('ready')
-      el.recordBtn.disabled = starting
-      el.recordLabel.textContent = starting ? 'Starting…' : 'Start recording'
-      return
-    }
-  }
+  } catch { micPermission = 'unknown'; }
 }
 
 async function refresh() {
   try {
-    const next = await send('get-state')
-    if (next && typeof next.status === 'string') {
-      state = next
-      render()
-    }
-  } catch (error) {
-    state = state || {
-      status: 'error',
-      startedAt: null,
-      uploadedBytes: 0,
-      fileId: null,
-      shareLink: null,
-      driveLink: null,
-      error: error.message,
-      onboarded: true
-    }
-    render()
+    const next = await send('get-state');
+    if (next?.status) { state = next; render(); }
+  } catch (err) {
+    state ||= { status: 'error', error: err.message, onboarded: true };
+    render();
   }
 }
 
-/* Handlers */
-
-el.signInBtn.addEventListener('click', async () => {
-  signingIn = true
-  showInlineError(el.signInError, '')
-  render()
+$('btn-signin').addEventListener('click', async () => {
+  signingIn = true; showError('signin-error', ''); render();
   try {
-    const response = await send('sign-in')
-    if (!response.ok) showInlineError(el.signInError, response.error || 'Could not connect to Google Drive.')
-  } catch (error) {
-    showInlineError(el.signInError, error.message)
-  } finally {
-    signingIn = false
-    await refresh()
-  }
-})
+    const res = await send('sign-in');
+    if (!res.ok) showError('signin-error', res.error || 'Could not connect to Google Drive.');
+  } catch (err) { showError('signin-error', err.message); }
+  finally { signingIn = false; await refresh(); }
+});
 
-for (const button of el.modeButtons) {
-  button.addEventListener('click', async () => {
-    settings.mode = button.dataset.mode === 'desktop' ? 'desktop' : 'tab'
-    renderSettings()
-    await saveSettings()
-  })
-}
+modeButtons.forEach((b) => b.addEventListener('click', async () => {
+  settings.mode = b.dataset.mode === 'desktop' ? 'desktop' : 'tab';
+  renderSettings();
+  await chrome.storage.local.set({ settings });
+}));
 
-el.micToggle.addEventListener('change', async () => {
-  settings.mic = el.micToggle.checked
-  await saveSettings()
-  await refreshMicPermission()
-  render()
-})
+$('mic-toggle').addEventListener('change', async () => {
+  settings.mic = $('mic-toggle').checked;
+  await chrome.storage.local.set({ settings });
+  await refreshMic();
+  render();
+});
 
-for (const button of el.micEnableButtons) {
-  button.addEventListener('click', async () => {
-    try {
-      await chrome.tabs.create({ url: chrome.runtime.getURL(MIC_PAGE) })
-    } catch (error) {
-      console.error('popup: could not open the microphone page', error)
-    }
-    window.close()
-  })
-}
+document.querySelectorAll('[data-mic-enable]').forEach((b) => b.addEventListener('click', async () => {
+  await chrome.tabs.create({ url: chrome.runtime.getURL('permissions/mic.html') }).catch(() => {});
+  window.close();
+}));
 
-el.recordBtn.addEventListener('click', async () => {
-  starting = true
-  startingSince = Date.now()
-  showInlineError(el.readyError, '')
-  render()
+$('btn-record').addEventListener('click', async () => {
+  starting = true; startingSince = Date.now(); showError('ready-error', ''); render();
   try {
-    const response = await send('start-recording', {
-      mode: settings.mode,
-      mic: settings.mic,
-      // The service worker has no window, so the popup reports the display's
-      // pixel density; it shares a display with the tab being captured.
-      devicePixelRatio: window.devicePixelRatio || 1
-    })
-    if (!response.ok) {
-      starting = false
-      showInlineError(el.readyError, response.error || 'Could not start recording.')
-    }
-  } catch (error) {
-    starting = false
-    showInlineError(el.readyError, error.message)
-  }
-  await refresh()
-})
+    const res = await send('start-recording', { mode: settings.mode, mic: settings.mic, devicePixelRatio: window.devicePixelRatio || 1 });
+    if (!res.ok) { starting = false; showError('ready-error', res.error || 'Could not start recording.'); }
+  } catch (err) { starting = false; showError('ready-error', err.message); }
+  await refresh();
+});
 
-el.stopBtn.addEventListener('click', async () => {
-  stopping = true
-  el.stopBtn.disabled = true
-  render()
-  try {
-    await send('stop-recording')
-  } catch (error) {
-    console.error('popup: stop failed', error)
-  }
-  await refresh()
-})
+$('btn-stop').addEventListener('click', async () => {
+  stopping = true; $('btn-stop').disabled = true; render();
+  await send('stop-recording').catch(() => {});
+  await refresh();
+});
 
-el.copyBtn.addEventListener('click', async () => {
-  const link = el.shareLink.value
-  if (!link) return
-  try {
-    await navigator.clipboard.writeText(link)
-  } catch (error) {
-    console.error('popup: clipboard write failed', error)
-    el.shareLink.select()
-    return
-  }
-  el.copyBtn.textContent = 'Copied'
-  clearTimeout(copyFlashTimer)
-  copyFlashTimer = setTimeout(() => {
-    el.copyBtn.textContent = 'Copy link'
-  }, 1500)
-})
+$('btn-copy').addEventListener('click', async () => {
+  const link = $('share-link').value;
+  if (!link) return;
+  try { await navigator.clipboard.writeText(link); }
+  catch { $('share-link').select(); return; }
+  $('btn-copy').textContent = 'Copied';
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => { $('btn-copy').textContent = 'Copy link'; }, 1500);
+});
 
-el.shareLink.addEventListener('focus', () => el.shareLink.select())
+$('share-link').addEventListener('focus', () => $('share-link').select());
 
-for (const button of [el.newBtn, el.retryBtn]) {
-  button.addEventListener('click', async () => {
-    button.disabled = true
-    try {
-      await send('reset')
-    } catch (error) {
-      console.error('popup: reset failed', error)
-    }
-    button.disabled = false
-    await refresh()
-  })
-}
+[$('btn-new'), $('btn-retry')].forEach((b) => b.addEventListener('click', async () => {
+  b.disabled = true;
+  await send('reset').catch(() => {});
+  b.disabled = false;
+  await refresh();
+}));
 
-/* Boot */
-
-async function init() {
-  await loadSettings()
-  renderSettings()
-  await refreshMicPermission()
-  await refresh()
-  pollTimer = setInterval(refresh, POLL_MS)
-  tickTimer = setInterval(updateTimer, TIMER_MS)
-}
-
-window.addEventListener('unload', () => {
-  clearInterval(pollTimer)
-  clearInterval(tickTimer)
-})
-
-init()
+(async () => {
+  const saved = (await chrome.storage.local.get('settings')).settings || {};
+  settings = { mode: saved.mode === 'desktop' ? 'desktop' : 'tab', mic: typeof saved.mic === 'boolean' ? saved.mic : true };
+  renderSettings();
+  await refreshMic();
+  await refresh();
+  const pollTimer = setInterval(refresh, 1000);
+  const tickTimer = setInterval(updateTimer, 250);
+  window.addEventListener('unload', () => { clearInterval(pollTimer); clearInterval(tickTimer); });
+})();
