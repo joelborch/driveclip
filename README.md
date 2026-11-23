@@ -1,9 +1,8 @@
 # DriveClip
 
-A minimal, open-source screen recorder for Chrome that streams straight into **your own
-Google Drive**. Hit record, talk over your tab or your desktop, hit stop, and you get a
-share link in a second or two — because the video was already uploading while you were
-recording it.
+A minimal, open-source screen recorder for Chrome that uploads straight into **your own
+Google Drive**. Hit record, talk over your tab or your desktop, hit stop, and DriveClip
+uploads the recording in resumable chunks and hands you a share link.
 
 No server, no account, no storage bill. The extension talks directly to the Drive API
 with a single `drive.file` scope, and the "player page" is a static site you host
@@ -37,9 +36,12 @@ and clicking "Allow" on permission prompts — everything else is in the runbook
 - Record the **current tab** (with tab audio) or the **whole desktop / a window**.
 - Optional **mic narration**, mixed with the captured audio in a Web Audio graph so tab
   sound stays audible to you while it's being recorded.
-- **Streaming upload**: MediaRecorder emits a chunk every 3 s, and those chunks are fed
-  into a Drive resumable-upload session in 4 MiB slices *during* the recording. When you
-  press stop, usually only the tail is left to send.
+- **Disk-backed recording & resumable upload on stop**: MediaRecorder emits a chunk every
+  3 s straight into Chrome's Origin Private File System (OPFS) so long recordings aren't
+  held in RAM. When you press stop, DriveClip uploads the file in 4 MiB (256 KiB-aligned)
+  resumable chunks with backoff and offset resume. If an upload fails, the recording stays
+  saved on disk so you can **Try again** (resuming from where Drive left off), **Save
+  locally**, or **Discard recording**.
 - **One folder, one permission**: DriveClip creates a `DriveClip Recordings` folder on
   first connect and sets `anyone / reader` on the folder once. Every recording inherits
   link-visibility from it, so there is no per-file permission round-trip.
@@ -62,10 +64,15 @@ Five pieces, deliberately small and boring:
 - **`extension/offscreen/`** — the hands. A service worker can't touch `MediaRecorder` or
   `getUserMedia`, so all capture, the audio mixing graph, and the upload pump live in an
   offscreen document. It reports progress and the final file id back to the worker.
+- **`extension/lib/recording-store.js`** — disk-backed OPFS writer/reader/deleter so
+  recorded chunks go straight to disk during capture and survive upload failures until
+  upload succeeds or the user discards the file.
 - **`extension/lib/drive.js`** — pure `fetch` against the Drive v3 API: folder
-  ensure/create, resumable session creation, and a `ChunkedUploader` that serializes
-  slices, handles `308 Resume Incomplete`, refreshes an expired token once on `401`, and
-  backs off on `5xx`. It makes no `chrome.*` calls, so it's trivially testable.
+  ensure/create/verify (checked at Start so a bad token or trashed folder fails before
+  recording), resumable session creation, offset status queries (`Content-Range: bytes
+  */<total>`), and `uploadRecording` in 4 MiB chunks handling `308 Resume Incomplete`,
+  `401` token refresh, and exponential backoff on `429`/`5xx`/network errors. It makes no
+  `chrome.*` calls, so it's trivially testable.
 - **`dashboard/`** — a static site (`index.html`, `v.html`, `404.html`, `style.css`) with
   no build step. The viewer pulls the file id out of `/v/<id>`, validates it against
   `[A-Za-z0-9_-]{10,}`, and drops it into a Drive `/preview` iframe.
@@ -117,22 +124,22 @@ goes straight to `https://drive.google.com/file/d/<id>/view`.
 ## Known limitations
 
 **WebM duration metadata isn't patched.** MediaRecorder writes a live-stream WebM whose
-header has no duration, and DriveClip streams chunks out as they arrive, so there's no
-opportunity to rewrite the header afterwards. In practice this is fine: Drive transcodes
-uploaded video and its player gives you a proper seekable timeline within a minute or two
-of upload. If you download the raw `.webm` and open it in a local player before that,
-expect a missing or wrong duration and jumpy seeking.
+header has no duration, and DriveClip uploads the raw WebM as recorded without rewriting
+the header. In practice this is fine: Drive transcodes uploaded video and its player gives
+you a proper seekable timeline within a minute or two of upload. If you download the raw
+`.webm` and open it in a local player before that, expect a missing or wrong duration and
+jumpy seeking.
 
 **Drive throttles heavily-viewed files.** A recording that suddenly gets thousands of
 views can hit Google's per-file traffic quota and start showing "Sorry, you can't view or
 download this file at this time." That's a Drive property, not something the extension can
 work around. DriveClip is built for team-sized audiences, not for publishing.
 
-**Recording does not survive Chrome closing.** Chunks live in an in-memory queue until
-their upload slice is acknowledged, and there's no IndexedDB journal in v1. If Chrome
-quits, crashes, or the profile is killed mid-recording, whatever hadn't been acknowledged
-is gone and you're left with a partial file in Drive. Likewise, the service worker resets
-any stale non-idle state to `idle` on startup rather than trying to resume.
+**Active recording stops if Chrome closes, but completed recordings survive failed
+uploads.** While recording, chunks stream to OPFS on disk (bounded by Chrome's available
+origin disk quota — roughly 4–11 GB per hour at 8–25 Mbps). If an upload fails or Chrome
+restarts during upload, the saved recording remains on disk so you can retry the upload or
+save the `.webm` locally from the popup.
 
 **One recording at a time**, and closing the popup is safe but closing the *browser* is
 not. Ending the share from Chrome's own "Stop sharing" bar is handled and finalizes the

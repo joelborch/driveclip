@@ -1,26 +1,44 @@
-import { SHARE_BASE } from '../lib/config.js';
+import { SHARE_BASE, TIMESLICE_MS } from '../lib/config.js';
 import { uploadRecording } from '../lib/drive.js';
+import { createRecordingWriter, readPendingRecording, deletePendingRecording } from '../lib/recording-store.js';
 
 const MIME_CANDIDATES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
 let session = null;
+let uploading = false;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || message.target !== 'offscreen') return;
+
   if (message.type === 'offscreen-start') {
     const incumbent = session;
     start(message.payload || {})
       .then(() => sendResponse({ ok: true }))
       .catch((err) => {
         console.error('[DriveClip] start failed', err);
-        if (session && session !== incumbent) teardown(session);
+        if (session && session !== incumbent) teardown(session, true);
         sendResponse({ ok: false, error: readableError(err) });
       });
     return true;
   }
+
   if (message.type === 'offscreen-stop') {
     stop();
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (message.type === 'offscreen-retry-upload') {
+    retryPendingUpload(message.payload || {})
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: readableError(err) }));
+    return true;
+  }
+
+  if (message.type === 'offscreen-discard-recording') {
+    deletePendingRecording()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: readableError(err) }));
+    return true;
   }
 });
 
@@ -31,7 +49,7 @@ function computeVideoBitrate(videoTrack) {
 }
 
 async function start(payload) {
-  if (session) throw new Error('A recording is already in progress');
+  if (session || uploading) throw new Error('A recording or upload is already in progress');
   const { mode, mic, streamId, captureSize, token, folderId, fileName } = payload;
   if (mode !== 'tab' && mode !== 'desktop') throw new Error(`Unknown capture mode: ${mode}`);
   if (!streamId || !token || !folderId) throw new Error('Missing recording start parameters');
@@ -39,7 +57,7 @@ async function start(payload) {
   const s = {
     mode, folderId, fileName, token,
     captureStream: null, micStream: null, audioContext: null, recorder: null, recordedStream: null,
-    chunks: [], stopping: false, finished: false, onStopped: null
+    writer: null, stopping: false, finished: false, onStopped: null
   };
   session = s;
 
@@ -59,6 +77,10 @@ async function start(payload) {
   s.recordedStream = await buildRecordedStream(s);
   if (s !== session) throw new Error('Recording was cancelled');
 
+  // Stream chunks straight to disk-backed OPFS instead of buffering in RAM.
+  s.writer = await createRecordingWriter();
+  if (s !== session) { await s.writer.abort(); throw new Error('Recording was cancelled'); }
+
   const mimeType = MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t)) || 'video/webm';
   const recorder = new MediaRecorder(s.recordedStream, {
     mimeType,
@@ -66,8 +88,10 @@ async function start(payload) {
     audioBitsPerSecond: 192_000
   });
   s.recorder = recorder;
-  recorder.ondataavailable = (e) => { if (e.data?.size) s.chunks.push(e.data); };
-  recorder.onerror = (e) => fail(s, e.error || new Error('MediaRecorder error'));
+  recorder.ondataavailable = (e) => {
+    if (e.data?.size) s.writer.append(e.data).catch((err) => fail(s, err, false));
+  };
+  recorder.onerror = (e) => fail(s, e.error || new Error('MediaRecorder error'), false);
   recorder.onstop = () => { if (s.onStopped) s.onStopped(); };
 
   // Chrome's built-in "Stop sharing" button ends the video track directly.
@@ -75,7 +99,7 @@ async function start(payload) {
     track.addEventListener('ended', () => { if (track.kind === 'video') stop(); });
   }
 
-  recorder.start(1000);
+  recorder.start(TIMESLICE_MS);
   notify('recording-started', {});
 }
 
@@ -142,7 +166,7 @@ function stop() {
   const s = session;
   if (!s || s.stopping) return;
   s.stopping = true;
-  finish(s).catch((err) => fail(s, err));
+  finish(s).catch((err) => fail(s, err, false));
 }
 
 async function finish(s) {
@@ -151,42 +175,97 @@ async function finish(s) {
   }
   stopTracks(s);
   await closeAudio(s);
+  await s.writer.close();
   if (s.finished) return;
 
-  const blob = new Blob(s.chunks, { type: 'video/webm' });
-  s.chunks = [];
-  notify('upload-progress', { uploadedBytes: blob.size });
+  const file = await readPendingRecording();
+  if (!file) throw new Error('No video data was captured.');
 
-  const { fileId } = await uploadRecording({
-    blob,
-    name: s.fileName,
-    mimeType: 'video/webm',
-    folderId: s.folderId,
-    getFreshToken: (forceRefresh) => freshToken(s, forceRefresh)
-  });
-
+  const { fileName, folderId, token } = s;
   s.finished = true;
   if (session === s) session = null;
-  notify('recording-complete', {
-    fileId,
-    shareLink: SHARE_BASE + fileId,
-    driveLink: `https://drive.google.com/file/d/${fileId}/view`
-  });
+
+  await notifyAsync('recording-saved', { fileName, folderId, totalBytes: file.size });
+  await performUpload({ file, fileName, folderId, sessionUrl: null, token });
 }
 
-function fail(s, err) {
+async function retryPendingUpload({ token, folderId, fileName, sessionUrl = null }) {
+  if (session || uploading) throw new Error('A recording or upload is already in progress');
+  const file = await readPendingRecording();
+  if (!file) throw new Error('Saved recording could not be found on disk.');
+  // Run asynchronously after acknowledging retry start so the worker isn't blocked.
+  performUpload({ file, fileName, folderId, sessionUrl, token }).catch(() => {});
+}
+
+async function performUpload({ file, fileName, folderId, sessionUrl, token }) {
+  uploading = true;
+  let currentToken = token;
+  let lastSessionUrl = sessionUrl;
+  let lastUploaded = 0;
+
+  try {
+    // Report 0 bytes uploaded at start (never report file.size before Drive acknowledges bytes).
+    notify('upload-progress', { uploadedBytes: 0, totalBytes: file.size });
+
+    const { fileId } = await uploadRecording({
+      blob: file,
+      name: fileName,
+      mimeType: 'video/webm',
+      folderId,
+      sessionUrl,
+      getFreshToken: async (forceRefresh) => {
+        if (!forceRefresh && currentToken) return currentToken;
+        const res = await chrome.runtime.sendMessage({ type: 'need-token', target: 'background' });
+        if (!res?.token) throw new Error('Could not refresh the Google access token');
+        currentToken = res.token;
+        return currentToken;
+      },
+      onSession: (url) => {
+        lastSessionUrl = url;
+        notify('upload-session', { sessionUrl: url });
+      },
+      onProgress: (uploadedBytes) => {
+        lastUploaded = uploadedBytes;
+        notify('upload-progress', { uploadedBytes, totalBytes: file.size });
+      }
+    });
+
+    // Only delete the disk-backed recording after Drive confirms the upload succeeded.
+    await deletePendingRecording();
+    notify('recording-complete', {
+      fileId,
+      shareLink: SHARE_BASE + fileId,
+      driveLink: `https://drive.google.com/file/d/${fileId}/view`
+    });
+  } catch (err) {
+    console.error('[DriveClip] upload failed (recording kept on disk)', err);
+    notify('recording-error', {
+      message: readableError(err),
+      hasPendingRecording: true,
+      fileName,
+      sessionUrl: err?.sessionExpired ? null : (err?.sessionUrl || lastSessionUrl),
+      uploadedBytes: Number.isFinite(err?.uploadedBytes) ? err.uploadedBytes : lastUploaded,
+      totalBytes: file.size
+    });
+  } finally {
+    uploading = false;
+  }
+}
+
+function fail(s, err, abortFile) {
   if (s.finished) return;
   s.finished = true;
   console.error('[DriveClip] recording failed', err);
-  teardown(s);
-  notify('recording-error', { message: readableError(err) });
+  teardown(s, abortFile);
+  notify('recording-error', { message: readableError(err), hasPendingRecording: false });
 }
 
-function teardown(s = session) {
+function teardown(s = session, abortFile = false) {
   if (!s) return;
   try { if (s.recorder && s.recorder.state !== 'inactive') s.recorder.stop(); } catch {}
   stopTracks(s);
   closeAudio(s);
+  if (abortFile && s.writer) s.writer.abort().catch(() => {});
   if (session === s) session = null;
 }
 
@@ -202,16 +281,12 @@ async function closeAudio(s) {
   if (ctx) await ctx.close().catch(() => {});
 }
 
-async function freshToken(s, forceRefresh) {
-  if (!forceRefresh && s.token) return s.token;
-  const res = await chrome.runtime.sendMessage({ type: 'need-token', target: 'background' });
-  if (!res?.token) throw new Error('Could not refresh the Google access token');
-  s.token = res.token;
-  return res.token;
-}
-
 function notify(type, payload) {
   chrome.runtime.sendMessage({ type, target: 'background', payload }).catch(() => {});
+}
+
+async function notifyAsync(type, payload) {
+  await chrome.runtime.sendMessage({ type, target: 'background', payload }).catch(() => {});
 }
 
 function readableError(err) {

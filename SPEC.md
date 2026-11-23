@@ -1,9 +1,9 @@
 # DriveClip — Build Spec (v1)
 
 A minimal open-source Loom alternative: Chrome extension (MV3) that records a tab or
-desktop/window with mic narration, streams the recording into the user's Google Drive
-while recording, and yields a share link served by a static dashboard page that embeds
-the Drive player.
+desktop/window with mic narration to disk-backed storage (OPFS), uploads the recording
+into the user's Google Drive in resumable 4 MiB chunks on stop, and yields a share link
+served by a static dashboard page that embeds the Drive player.
 
 This spec is the single source of truth for interfaces. Build agents own disjoint
 files and MUST match the contracts here exactly. Vanilla JS only (ES2022), no
@@ -43,16 +43,23 @@ driveclip/
   Scope: exactly one — `https://www.googleapis.com/auth/drive.file`.
 - **Folder model:** one Drive folder per user, created at onboarding, with an
   `anyone`/`reader` permission set on the folder once. Files inherit link-visibility.
-- **Streaming upload:** MediaRecorder produces chunks every 3000 ms (`timeslice`).
-  Chunks are appended to an in-memory queue and streamed into a Drive resumable
-  upload session during recording in 256 KiB-multiple slices. On stop, the final
-  slice is sent with the true total size. We do NOT patch WebM duration metadata in
-  v1 — Drive's transcode provides seekable playback; document this in README.
+- **Disk-backed capture & resumable upload on stop:** MediaRecorder produces chunks every
+  3000 ms (`timeslice`), streamed straight into Chrome's Origin Private File System (OPFS)
+  via `lib/recording-store.js` so long recordings (4–11 GB/hr) aren't buffered in RAM.
+  Before recording starts, the service worker verifies the OAuth token and target Drive
+  folder (`verifyRecordingsFolder`) so a bad sign-in or trashed folder fails immediately.
+  On stop, `uploadRecording` uploads the OPFS file in 4 MiB (256 KiB-aligned) resumable
+  chunks, handling HTTP `308`, `401` token refresh, and exponential backoff with
+  `Content-Range: bytes */<total>` offset queries on `429`/`5xx`/network errors. We do NOT
+  patch WebM duration metadata — Drive's transcode provides seekable playback; document
+  this in README.
 - **Recording format:** `video/webm;codecs=vp9,opus` if
   `MediaRecorder.isTypeSupported` says so, else `video/webm;codecs=vp8,opus`, else
-  `video/webm`. `videoBitsPerSecond: 8_000_000`.
-- **Crash safety (v1):** chunks stay in the in-memory queue until their upload slice
-  is acknowledged (2xx/308). No IndexedDB in v1.
+  `video/webm`. Video bitrate scales with capture resolution (8–25 Mbps).
+- **Failure recovery:** The OPFS file and `pendingRecording` metadata stay on disk until
+  Drive confirms upload completion or the user explicitly clicks Discard. On upload error,
+  the popup lets the user **Try again** (resuming the Drive session), **Save locally**, or
+  **Discard recording**.
 - **Share link:** `SHARE_BASE + fileId` (see config.js). Fallback link (shown as
   secondary "Open in Drive"): `https://drive.google.com/file/d/<fileId>/view`.
 - **Errors:** all user-visible errors flow to popup via state (below). Never
@@ -82,19 +89,24 @@ Every listener MUST ignore messages whose `target` isn't its own. Responses use
 - `get-state` `{}` → response: the State object (below).
 - `start-recording` `{ mode: 'tab'|'desktop', mic: boolean }` → response `{ ok }`.
 - `stop-recording` `{}` → response `{ ok }` (forwarded to offscreen).
-- `reset` `{}` → response `{ ok }` (clears a 'done'/'error' state back to 'idle').
+- `reset` `{}` → response `{ ok }` (clears a 'done'/'error' state back to 'idle' when no pending recording exists).
+- `retry-upload` `{}` → response `{ ok } | { ok:false, error }` (verifies token/folder and resumes uploading the pending OPFS recording).
+- `discard-recording` `{}` → response `{ ok }` (deletes the pending OPFS recording and resets to 'idle').
 
 ### background → offscreen (`target:'offscreen'`)
-- `offscreen-start` `{ mode, mic, streamId, token, folderId, fileName }` →
-  response `{ ok } | { ok:false, error }`. `streamId` is non-null only for
-  `mode:'tab'` (from `chrome.tabCapture.getMediaStreamId`).
-- `offscreen-stop` `{}` → response `{ ok }`. Stops tracks + finalizes upload.
+- `offscreen-start` `{ mode, mic, streamId, captureSize, token, folderId, fileName }` →
+  response `{ ok } | { ok:false, error }`.
+- `offscreen-stop` `{}` → response `{ ok }`. Stops tracks, closes OPFS file, starts resumable upload.
+- `offscreen-retry-upload` `{ token, folderId, fileName, sessionUrl }` → response `{ ok } | { ok:false, error }`.
+- `offscreen-discard-recording` `{}` → response `{ ok }`.
 
 ### offscreen → background (`target:'background'`)
 - `recording-started` `{}`
-- `upload-progress` `{ uploadedBytes, elapsedMs }`
+- `recording-saved` `{ fileName, folderId, totalBytes }`
+- `upload-session` `{ sessionUrl }`
+- `upload-progress` `{ uploadedBytes, totalBytes }` (starts at 0 and advances only as Drive acknowledges chunks)
 - `recording-complete` `{ fileId, shareLink, driveLink }`
-- `recording-error` `{ message }`
+- `recording-error` `{ message, hasPendingRecording, fileName?, sessionUrl?, uploadedBytes?, totalBytes? }`
 - `need-token` `{}` → response `{ token }` — background calls
   `getAuthToken({ interactive: false })` after removing the cached bad token with
   `chrome.identity.removeCachedAuthToken`.
@@ -196,57 +208,43 @@ ES module. Responsibilities:
     mic source → destination node only. Recorded stream = video track + destination
     node's audio track. Handle streams with no audio track (desktop share without
     audio) gracefully — record video-only or mic-only-audio as available.
-  - Create Drive resumable session via `lib/drive.js` (name=fileName, mimeType
-    'video/webm', parent folderId), then start MediaRecorder with TIMESLICE_MS.
-  - `ondataavailable` → push blob into the uploader queue (drive.js
-    ChunkedUploader) which uploads UPLOAD_SLICE_BYTES-aligned slices sequentially
-    (one in-flight PUT at a time), reporting `upload-progress` (throttle: at most
-    one message per slice).
+  - Open a disk-backed OPFS writer via `lib/recording-store.js` and start MediaRecorder
+    with `TIMESLICE_MS`.
+  - `ondataavailable` → stream each chunk straight to OPFS (not buffered in RAM).
   - Send `recording-started` once recorder starts.
   - If the user ends the share via Chrome's native UI (video track `onended`),
     treat as stop.
 - On `offscreen-stop` (or track-ended): `recorder.stop()`, await final
-  `ondataavailable`, stop all tracks, close AudioContext, flush the queue with
-  final Content-Range including total size, read `id` from the Drive completion
-  response, then send `recording-complete` with
+  `ondataavailable`, stop all tracks, close AudioContext, close OPFS writer, notify
+  `recording-saved`, then call `uploadRecording` in `lib/drive.js` (reporting `0` bytes
+  initially, then advancing `upload-progress` as each 4 MiB chunk is acknowledged).
+- On upload completion: delete the OPFS file and send `recording-complete` with
   `shareLink = SHARE_BASE + fileId`, `driveLink = https://drive.google.com/file/d/<id>/view`.
-- On upload 401: message `need-token`, retry the failed slice once with new token.
-- Any fatal error → `recording-error` + full local cleanup.
+- On upload failure: keep the OPFS file on disk and send `recording-error` with
+  `hasPendingRecording: true`, `sessionUrl`, and `uploadedBytes` so the user can retry
+  upload, save locally, or discard.
 
 ## lib/drive.js (agent D)
 
-ES module, no deps. All functions take `token` explicitly; no chrome.* calls except
-none at all (pure fetch) — token refresh is the CALLER's job via a
-`getFreshToken: async () => string` callback passed into ChunkedUploader.
+ES module, no deps. All functions take `token` explicitly (or `getFreshToken` callback);
+no `chrome.*` calls (pure fetch).
 
 ```js
 export async function ensureRecordingsFolder(token)
-// 1. files.list q: appProperties has key 'driveclip' value 'root-folder',
-//    trashed=false, spaces='drive' → return existing id if found.
-// 2. else files.create {name: FOLDER_NAME, mimeType:'application/vnd.google-apps.folder',
-//    appProperties:{driveclip:'root-folder'}}
-// 3. permissions.create on folder {type:'anyone', role:'reader'} — idempotent enough;
-//    only on newly created folder.
-// returns folderId. Throws Error with readable message on failure.
-
-export async function createResumableSession(token, { name, mimeType, folderId })
-// POST https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable
-// body { name, mimeType, parents:[folderId] } → returns Location header URL.
-
-export class ChunkedUploader {
-  constructor({ sessionUrl, getFreshToken })   // note: resumable session PUTs
-  append(blob)                                  // add MediaRecorder chunk
-  async drain()                                 // upload all complete slices (serialized)
-  async finalize()                              // upload remainder w/ total size; returns {fileId}
-  get uploadedBytes()
-  onprogress = (uploadedBytes) => {}            // assignable callback
-}
-// Slice rules: PUT sessionUrl, headers Content-Range: bytes start-end/* (or /total
-// on final). Non-final slices MUST be multiples of UPLOAD_GRANULARITY. Expect 308
-// (Resume Incomplete) for non-final, 200/201 with JSON {id} for final. On 401 call
-// getFreshToken() once and retry slice. On 5xx retry with 1s/2s/4s backoff (3 tries).
-// Auth header on every PUT: Authorization: Bearer <token>.
+export async function verifyRecordingsFolder(token, folderId)
+export async function createResumableSession(token, { name, mimeType, folderId, totalBytes })
+export async function queryUploadOffset(sessionUrl, totalBytes, token)
+export async function uploadRecording({
+  blob, name, mimeType, folderId, sessionUrl, getFreshToken,
+  onProgress, onSession, sliceBytes, sleep, maxRetries
+})
 ```
+Slice rules: PUT `sessionUrl` with `Content-Range: bytes start-end/total` in
+`UPLOAD_SLICE_BYTES` (4 MiB, 256 KiB-aligned) slices. Expect `308` for non-final chunks
+and `200`/`201` with JSON `{ id }` for the final chunk. On `401` call `getFreshToken(true)`
+and retry. On `429`/`5xx`/network error back off exponentially (1 s → 32 s, up to 6 retries
+per chunk) and query `Content-Range: bytes */<total>` to continue from Drive's committed
+offset without resending already-uploaded bytes.
 
 Note: resumable-session PUTs technically don't require the Authorization header,
 include it anyway — harmless and future-proof.
