@@ -14,7 +14,7 @@ APIs here have sharp edges that are already accounted for.
 | `extension/popup/` | All UI. Stateless renderer of the worker's `State` object | ids/classes are load-bearing (see below) |
 | `extension/background/service-worker.js` | State machine, OAuth, offscreen lifecycle | resets stale state only when no offscreen document is alive |
 | `extension/offscreen/` | Capture, WebAudio mix graph, MediaRecorder, upload pump | the ONLY place media APIs may be called |
-| `extension/lib/drive.js` | Pure-fetch Drive v3 client + ChunkedUploader | no `chrome.*` calls, ever |
+| `extension/lib/drive.js` | Pure-fetch Drive v3 client + single-PUT resumable upload on stop | no `chrome.*` calls, ever |
 | `extension/lib/config.js` | Constants incl. `SHARE_BASE` | `SHARE_BASE` ends with `/v/` |
 | `extension/permissions/mic.html` | One-time mic grant page (offscreen docs cannot prompt) | opened via `chrome.tabs.create` |
 | `dashboard/` | Static share site, no build step | `404.html` byte-identical to `v.html`; asset links root-absolute |
@@ -61,11 +61,10 @@ node --check extension/background/service-worker.js
 node --check extension/offscreen/offscreen.js
 node --check extension/popup/popup.js
 node --check extension/lib/drive.js
+node --check extension/permissions/mic.js
+node --test tests/drive.test.mjs
 cmp dashboard/v.html dashboard/404.html
 ```
-
-There is no test suite yet; `drive.js` is deliberately chrome-free so a stubbed-fetch
-smoke test is the natural first one to add.
 
 ## Load-bearing contracts (break these and the app silently dies)
 
@@ -80,10 +79,7 @@ smoke test is the natural first one to add.
   `[data-mic-enable]` buttons. Views are toggled via the `hidden` attribute.
 - **Viewer id rule** — file ids must match `^[A-Za-z0-9_-]{10,}$` and be inserted with
   DOM APIs only (no HTML string templating).
-- **Drive upload math** — non-final slices must be multiples of 256 KiB; expect `308`
-  for non-final and `200/201 {id}` for final; on `5xx`/network failure, status-query
-  with `Content-Range: bytes */<total|*>` and resume from the acknowledged offset
-  (already implemented in `ChunkedUploader` — don't simplify it away).
+- **Drive upload** — `uploadRecording` opens a resumable upload session with `X-Upload-Content-Length` and PUTs the completed WebM blob on stop (handling files > 5 MB with 401 token refresh and 5xx/network retries).
 
 ## Sharp edges already handled (do not "fix" these into bugs)
 
